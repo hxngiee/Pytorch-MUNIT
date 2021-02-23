@@ -157,8 +157,7 @@ class Train:
         transform_train = transforms.Compose([CenterCrop((self.ny_load, self.nx_load)), Normalize(), RandomFlip(), Rescale((self.ny_in, self.nx_in)), ToTensor()])
         transform_inv = transforms.Compose([ToNumpy(), Denomalize()])
 
-        # cyclegan 파트 dataset 불러오는거 참고
-        dataset_train = Dataset(dir_data_train, data_type=self.data_type, transform=transform_train, attrs=attrs)
+        dataset_train = Dataset(data_dir=os.path.join(dir_data_train,'train'), data_type=self.data_type, transform=transform_train)
 
         loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=8)
 

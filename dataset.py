@@ -12,100 +12,63 @@ class Dataset(torch.utils.data.Dataset):
        stuff<number>_density.pt
     """
 
-    def __init__(self, data_dir, attrs=[], data_type='float32', transform=[], mode='train'):
-        self.data_dir = data_dir
+    def __init__(self, data_dir, data_type='float32', transform=[], mode='train'):
+
+        self.data_dir_a = data_dir + 'A'
+        self.data_dir_b = data_dir + 'B'
         self.transform = transform
         self.data_type = data_type
-        self.attrs = attrs
-        self.ncls = len(self.attrs)
         self.mode = mode
 
         data_name = data_dir.split('/')[-1]     # linux
         # data_name = data_dir.split('\\')[-1]  # window?
 
-        if data_name == 'celeba':
-            lines = [line.rstrip() for line in open(os.path.join(self.data_dir, 'list_attr_celeba.txt'), 'r')]      # linux
-            # lines = [line.rstrip() for line in open(os.path.join(self.data_dir, '..\\list_attr_celeba.txt'), 'r')]    # window
-            all_attr_names = lines[1].split()
-            lines = lines[2:]
-
-        elif data_name == 'rafd':
-            lines = os.listdir(self.data_dir)
-            all_attr_names = self.attrs
-
-        np.random.seed(1234)
-        np.random.shuffle(lines)
-
-        attr2idx = {}
-        idx2attr = {}
-        for i, attr_name in enumerate(all_attr_names):
-            attr2idx[attr_name] = i
-            idx2attr[i] = attr_name
-
-        self.attr2idx = attr2idx
-        self.idx2attr = idx2attr
-
-        train_dataset = []
-        test_dataset = []
-
-        if data_name == 'celeba':
-            for i, line in enumerate(lines):
-                split = line.split()
-                filename = split[0]
-                values = split[1:]
-
-                label = []
-                for attr_name in self.attrs:
-                    idx = self.attr2idx[attr_name]
-                    label.append(values[idx] == '1')
-
-                if (i + 1) > 2000:
-                    train_dataset.append([filename, label])
-                else:
-                    test_dataset.append([filename, label])
-
-        elif data_name == 'rafd':
-            for i, line in enumerate(lines):
-                label = list(np.zeros(len(self.attrs), dtype=np.long))
-                split = line.split('_')
-                filename = line
-                attr = split[4]
-
-                label[attr2idx[attr]] = 1
-                # label = [attr2idx[attr]]
-
-                if (i + 1) <= 4000:
-                    train_dataset.append([filename, label])
-                else:
-                    test_dataset.append([filename, label])
-
-        if self.mode == 'train':
-            self.dataset = train_dataset
+        if os.path.exists(self.data_dir_a):
+            lst_data_a = os.listdir(self.data_dir_a)
+            lst_data_a = [f for f in lst_data_a if f.endswith('jpg') | f.endswith('jpeg') | f.endswith('png')]
+            lst_data_a.sort()
         else:
-            self.dataset = test_dataset
+            lst_data_a = []
+
+        if os.path.exists(self.data_dir_b):
+            lst_data_b = os.listdir(self.data_dir_b)
+            lst_data_b = [f for f in lst_data_b if f.endswith('jpg') | f.endswith('jpeg') | f.endswith('png')]
+            lst_data_b.sort()
+        else:
+            lst_data_b = []
+
+        self.lst_data_a = lst_data_a
+        self.lst_data_b = lst_data_b
+
 
     def __getitem__(self, index):
+        data = {}
 
-        # x = np.load(os.path.join(self.data_dir, self.names[0][index]))
-        # y = np.load(os.path.join(self.data_dir, self.names[1][index]))
-        filename, label = self.dataset[index]
-        data = plt.imread(os.path.join(self.data_dir, filename)).squeeze()
-
+        data_a = plt.imread(os.path.join(self.data_dir_a, self.lst_data_a[index]))[:,:,:3]
+        if data_a.ndim == 2:
+            data_a = data_a[:,:,np.newaxis]
         if data.dtype == np.uint8:
-            data = data / 255.0
+            data_a = data_a / 255.0
+        data['data_a'] = data_a
 
-        if len(data.shape) == 2:
-            data = np.expand_dims(data, axis=2)
-            data = np.tile(data, (1, 1, 3))
+        data_b = plt.imread(os.path.join(self.data_dir_b, self.lst_data_b[index]))[:,:,:3]
+        if data_b.ndim == 2:
+            data_b = data_b[:,:,np.newaxis]
+        if data.dtype == np.uint8:
+            data_b = data_b / 255.0
+        data['data_b'] = data_b
 
         if self.transform:
             data = self.transform(data)
-            label = torch.FloatTensor(label)
 
-        return data, label
+        return data
+
 
     def __len__(self):
-        return len(self.dataset)
+        if len(self.lst_data_a) < len(self.lst_data_b):
+            return len(self.lst_data_a)
+        else:
+            return len(self.lst_data_b)
 
 
 class ToTensor(object):

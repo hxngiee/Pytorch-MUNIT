@@ -20,7 +20,7 @@ parser.add_argument('--train_continue', default='off', choices=['on', 'off'], de
 
 parser.add_argument('--scope', default='munit', dest='scope')
 parser.add_argument('--norm', type=str, default='inorm', dest='norm')
-parser.add_argument('--name_data', type=str, default='edge2handbags', dest='name_data')
+parser.add_argument('--name_data', type=str, default='cezanne2photo', dest='name_data')
 # parser.add_argument('--name_data', type=str, default='rafd', dest='name_data')
 
 parser.add_argument('--dir_checkpoint', default='./checkpoints', dest='dir_checkpoint')
