@@ -166,6 +166,7 @@ class Train:
         num_batch_train = int((num_train / batch_size) + ((num_train % batch_size) != 0))
 
         ## setup network
+        # cyclegan Layer.py  파트
         # netG = UNet(nch_in + ncls, nch_out, nch_ker, norm)
         netG = ResNet(nch_in + ncls, nch_out, nch_ker, norm, nblk=self.nblk)
         netD = Discriminator(nch_out, nch_ker, [], ncls=ncls, ny_in=self.ny_out, nx_in=self.nx_out)

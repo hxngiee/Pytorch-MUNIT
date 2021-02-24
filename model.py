@@ -5,7 +5,29 @@ import torch.nn as nn
 from torch.nn import init
 from torch.optim import lr_scheduler
 
+class ContentEncoder(nn.Module):
+    def __init__(self,nch_in, nch_out, nch_ker, norm, nblk=4, ndown=2):
+        super(ContentEncoder, self).__init__()
 
+        self.model = []
+        self.model += [Conv2dBlock(nch_in,nch_out,7,1,3, norm=norm, relu=0.0)]
+
+        # downsampling blocks
+        for i in range(ndown):
+            self.model += [Conv2dBlock(nch_out,2 * nch_out, 4, 2, 1, norm=norm, relu=0.0)]
+            nch_out *= 2
+
+        # residual blocks
+        self.model += [ResBlocks(nch_out, norm=norm, relu=0.0)]
+        self.model = nn.Sequential(*self.model)
+        # self.output_dim = nch_out     #용도를 모르겠음
+
+    def forward(self,x ):
+        return self.model(x)
+
+
+
+##
 class UNet(nn.Module):
     def __init__(self, nch_in, nch_out, nch_ker=64, norm='bnorm'):
         super(UNet, self).__init__()

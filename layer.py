@@ -2,7 +2,37 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class Conv2dBlock(nn.Module):
+    def __init__(self, nch_in, nch_out, kernel_size=4, stride=1, padding=1, norm='inorm', relu=0.0, pad_type='zero', bias=True):
+        super(Conv2dBlock, self).__init__()
 
+        layer = []
+        layer += [Padding(padding=padding, pad_type=pad_type)]
+        layer += [Conv2d(nch_in,nch_out,kernel_size=kernel_size,stride=stride,padding=padding,bias=[])]
+        layer += [Norm2d(nch_out, norm)]
+        layer += [ReLU(relu)]
+
+        self.cbr = nn.Sequential(*layer)
+
+    def forward(self,x):
+        return self.cbr(x)
+
+class ResBlocks(nn.Module):
+    def __init__(self, nch, norm='inrom', relu=0.0, pad_type='zero', nblk=4):
+        super(ResBlocks, self).__init__()
+
+        layer = []
+        for i in range(nblk):
+            layer += [ResBlock(nch, nch,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode=pad_type)]
+
+        self.resblocks = nn.Sequential(*layer)
+
+    def forward(self,x):
+        return self.resblocks(x)
+
+
+
+##
 class CNR2d(nn.Module):
     def __init__(self, nch_in, nch_out, kernel_size=4, stride=1, padding=1, norm='bnorm', relu=0.0, drop=[], bias=[]):
         super().__init__()
