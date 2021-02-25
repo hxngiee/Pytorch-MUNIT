@@ -6,25 +6,72 @@ from torch.nn import init
 from torch.optim import lr_scheduler
 
 class ContentEncoder(nn.Module):
-    def __init__(self,nch_in, nch_out, nch_ker, norm, nblk=4, ndown=2):
+    def __init__(self,nch_in, nch_out, nch_ker, norm, nblk=4, n_down=2):
         super(ContentEncoder, self).__init__()
 
         self.model = []
         self.model += [Conv2dBlock(nch_in,nch_out,7,1,3, norm=norm, relu=0.0)]
 
         # downsampling blocks
-        for i in range(ndown):
-            self.model += [Conv2dBlock(nch_out,2 * nch_out, 4, 2, 1, norm=norm, relu=0.0)]
+        for i in range(n_down):
+            self.model += [Conv2dBlock(nch_out, 2 * nch_out, 4, 2, 1, norm=norm, relu=0.0)]
             nch_out *= 2
 
         # residual blocks
-        self.model += [ResBlocks(nch_out, norm=norm, relu=0.0)]
-        self.model = nn.Sequential(*self.model)
-        # self.output_dim = nch_out     #용도를 모르겠음
+        for i in range(nblk):
+            self.model += [ResBlock(nch_out, nch_out,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode='reflection')]
 
-    def forward(self,x ):
+        self.model = nn.Sequential(*self.model)
+        self.output_dim = nch_out     # decoder output_dim과 연결
+
+    def forward(self,x):
         return self.model(x)
 
+class StyleEncoder(nn.Module):
+    def __init__(self, nch_in, nch_out, nch_ker, nch_sty=8, norm=None):
+        self.model = []
+        self.model += [Conv2dBlock(nch_in, nch_out, 7, 1, 3, norm=norm, relu=0.0)]
+
+        for i in range(2):
+            self.model += [Conv2dBlock(nch_out, 2 * nch_out, 4, 2, 1, norm=norm, relu=0.0)]
+            nch_out *= 2
+
+        # d256, d256
+        for i in range(2):
+            self.model += [Conv2dBlock(nch_out, nch_out, 4, 2, 1, norm=norm, relu=0.0)]
+
+        # GAP - global average pooling
+        self.model += [nn.AdaptiveAvgPool2d(1)]
+
+        # fc8
+        self.model += [nn.Conv2d(nch_out, nch_sty, 1, 1, 0)]
+
+    def forward(self,x):
+        return self.model(x)
+
+class Decoder(nn.Module):
+    def __init__(self, nch_in, nch_out, nch_outputdim, norm='adain', nblk=4, n_up=2):
+        super(Decoder, self).__init__()
+
+        self.model = []
+
+        # AdaIN residual blocks
+        for i in range(nblk):
+            self.model += [ResBlock(nch_out, nch_out,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode='reflection')]
+
+        # Upsample
+        for i in range(n_up):
+            self.model += [nn.Upsamle(scale_factor=2)]
+            self.model += [Conv2dBlock(nch_out, nch_out//2, 5, 1, 2, norm='lnorm', relu=0.0, padding_mode='reflection')]
+
+            nch_out = nch_out//2
+
+        # relu 파트 수정 필요
+        self.model += [Conv2dBlock(nch_out,nch_outputdim, 7, 1, 3, norm=None, relu='tanh', padding_mode='zeros')]
+        self.model = nn.Sequential(*self.model)
+
+    def forward(self,x):
+        return self.model(x)
 
 
 ##
