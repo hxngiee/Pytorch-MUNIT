@@ -176,6 +176,8 @@ class Norm2d(nn.Module):
             self.norm = LayerNorm(nch)
         elif norm_mode == 'adain':
             self.norm = AdaptiveInstanceNorm2d(nch)
+        elif norm_mode == 'none' or None:
+            self.norm = None
 
     def forward(self, x):
         return self.norm(x)
@@ -187,11 +189,13 @@ class ReLU(nn.Module):
         super(ReLU, self).__init__()
         if relu == 'tanh':
             self.relu = nn.Tanh()
-
         elif relu > 0:
             self.relu = nn.LeakyReLU(relu, True)
         elif relu == 0:
             self.relu = nn.ReLU(True)
+        elif relu == 'none' or None:
+            self.relu = None
+        elif relu =='lrelu'
 
     def forward(self, x):
         return self.relu(x)

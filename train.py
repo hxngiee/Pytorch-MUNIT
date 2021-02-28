@@ -168,9 +168,11 @@ class Train:
         ## setup network
         # cyclegan Layer.py  파트
         # netG = UNet(nch_in + ncls, nch_out, nch_ker, norm)
+        # netG = ResNet(nch_in + ncls, nch_out, nch_ker, norm, nblk=self.nblk)
+        # netD = Discriminator(nch_out, nch_ker, [], ncls=ncls, ny_in=self.ny_out, nx_in=self.nx_out)
         netG = ResNet(nch_in + ncls, nch_out, nch_ker, norm, nblk=self.nblk)
-        netD = Discriminator(nch_out, nch_ker, [], ncls=ncls, ny_in=self.ny_out, nx_in=self.nx_out)
-        
+        netD = Discriminator(nch_in, nch_ker, [], ncls=ncls, ny_in=self.ny_out, nx_in=self.nx_out)
+
         init_net(netG, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
         init_net(netD, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
 

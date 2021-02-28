@@ -5,6 +5,42 @@ import torch.nn as nn
 from torch.nn import init
 from torch.optim import lr_scheduler
 
+class Discriminator(nn.Module):
+    # Multi-scale Discriminator
+    def __init__(self, nch_in, nch_ker, norm=None,relu=0.0, padding_mode='reflection'):
+        self.nch_in = nch_in
+        self.nch_ker = nch_ker
+
+        self.n_layer = 4
+
+        self.norm = norm
+        # self.activ = relu # lrelu 씀
+        # self.loss # GAN Loss[lsgan/nsgan]
+
+        # nn.Sequential과 nn.Modullist 차이
+        self.cnns = nn.ModuleList()
+
+        for _ in range(3):
+            self.cnns.append(self.make_net())
+
+        def make_net(self):
+            nch_ker = self.nch_ker
+            dk_layer = []
+            dk_layer += [Conv2dBlock(self.nch_in, nch_ker, 4, 2, 1, norm=None, relu=None, padding_mode=padding_mode)]
+            for i in range(self.n_layer - 1):
+                dk_layer += [Conv2dBlock(nch_ker, 2 * nch_ker,4, 2, 1, norm=self.norm, relu=0.2, padding_mode=padding_mode)]
+                nch_ker *= 2
+            dk_layer = nn.Sequential(*dk_layer)
+            return dk_layer
+
+        def forward(self, x):
+            outputs = []
+            for model in self.cnns:
+                outputs.append(model(x))
+                x = nn.AvgPool2d(3, stride=2, padding=[1,1], count_include_pad=False)
+            return outputs
+
+
 class ContentEncoder(nn.Module):
     def __init__(self,nch_in, nch_out, nch_ker, norm, nblk=4, n_down=2):
         super(ContentEncoder, self).__init__()
