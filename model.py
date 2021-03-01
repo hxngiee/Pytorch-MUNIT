@@ -5,9 +5,69 @@ import torch.nn as nn
 from torch.nn import init
 from torch.optim import lr_scheduler
 
+class Generator(nn.Module):
+    def __init__(self, nch_in, nch_ker, norm=None, relu=0.0, padding_mode='reflection'):
+        super(Generator, self).__init__()
+        self.nch_ker = nch_ker
+        self.style_dim = 8
+        self.nblk = 4
+        self.mlp_dim = 256
+
+        # Style Encoder
+        self.enc_style = StyleEncoder(nch_in=nch_in, nch_ker=nch_ker, nch_sty=self.style_dim, norm=None)
+
+        # Content Encoder
+        self.enc_content = ContentEncoder(nch_in=nch_in, nch_ker=nch_ker, norm='inorm', nblk=4, n_down=2)
+
+        self.dec = Decoder(nch_in = self.enc_content.output_dim, nch_out = 3, norm='adain')
+
+        # MLP to generate AdaIN params
+        self.mlp = MLP(nch_in = self.style_dim,nch_out = self.get_num_adain_params(self.dec), nch_ker=self.mlp_dim, nblk=3, norm='none', relu=relu)
+
+    def forward(self, x):
+        content, style_fake = self.encode(x)
+        rec_x = self.decode(content, style_fake)
+        return rec_x
+
+    def encode(self, x):
+        style_fake = self.enc_style(x)
+        content = self.enc_content(x)
+        return content, style_fake
+
+    def decode(self, content, style):
+        adain_params = self.mlp(style)
+        self.assign_adain_params(adain_params, self.dec)
+        x = self.dec(content)
+        return x
+
+    def assign_adain_params(self, adain_params, model):
+        for m in model.modules():
+            if m.__class__.__name__ == 'AdaptiveInstanceNorm2d':
+                mean = adain_params[:, :m.num_features]
+                std = adain_params[:, m.num_features:2*m.num_features]
+                m.bias = mean.contiguous().view(-1)
+                m.weight = std.contiguous().view(-1)
+                if adain_params.size(1) > 2*m.num_features:
+                    adain_params = adain_params[:, 2*m.num_features:]
+
+    def get_num_adain_params(self, model):
+        # return the number of AdaIn params needed by the model
+        num_adain_params = 0
+
+        for m in model.modules():
+            if m.__class__.__name__ == 'AdaptiveInstanceNorm2d':
+                num_adain_params += 2 * m.num_features
+
+        return num_adain_params
+
+
+
+
+
 class Discriminator(nn.Module):
     # Multi-scale Discriminator
-    def __init__(self, nch_in, nch_ker, norm=None,relu=0.0, padding_mode='reflection'):
+    def __init__(self, nch_in, nch_ker, norm='none', relu=0.0, padding_mode='reflection'):
+        super(Discriminator, self).__init__()
         self.nch_in = nch_in
         self.nch_ker = nch_ker
 
@@ -23,91 +83,107 @@ class Discriminator(nn.Module):
         for _ in range(3):
             self.cnns.append(self.make_net())
 
-        def make_net(self):
-            nch_ker = self.nch_ker
-            dk_layer = []
-            dk_layer += [Conv2dBlock(self.nch_in, nch_ker, 4, 2, 1, norm=None, relu=None, padding_mode=padding_mode)]
-            for i in range(self.n_layer - 1):
-                dk_layer += [Conv2dBlock(nch_ker, 2 * nch_ker,4, 2, 1, norm=self.norm, relu=0.2, padding_mode=padding_mode)]
-                nch_ker *= 2
-            dk_layer = nn.Sequential(*dk_layer)
-            return dk_layer
+    def make_net(self):
+        nch_ker = self.nch_ker
+        dk_layer = []
+        dk_layer += [Conv2dBlock(self.nch_in, nch_ker, 4, 2, 1, norm='none', relu='none', padding_mode='reflection')]
+        for i in range(self.n_layer - 1):
+            dk_layer += [Conv2dBlock(nch_ker, 2 * nch_ker,4, 2, 1, norm=self.norm, relu=0.2, padding_mode='reflection')]
+            nch_ker *= 2
+        dk_layer = nn.Sequential(*dk_layer)
+        return dk_layer
 
-        def forward(self, x):
-            outputs = []
-            for model in self.cnns:
-                outputs.append(model(x))
-                x = nn.AvgPool2d(3, stride=2, padding=[1,1], count_include_pad=False)
-            return outputs
+    def forward(self, x):
+        outputs = []
+        for model in self.cnns:
+            outputs.append(model(x))
+            x = nn.AvgPool2d(3, stride=2, padding=[1,1], count_include_pad=False)
+        return outputs
 
 
 class ContentEncoder(nn.Module):
-    def __init__(self,nch_in, nch_out, nch_ker, norm, nblk=4, n_down=2):
+    def __init__(self,nch_in, nch_ker, norm, nblk=4, n_down=2):
         super(ContentEncoder, self).__init__()
 
         self.model = []
-        self.model += [Conv2dBlock(nch_in,nch_out,7,1,3, norm=norm, relu=0.0)]
+        self.model += [Conv2dBlock(nch_in,nch_ker,7,1,3, norm=norm, relu=0.0)]
 
         # downsampling blocks
         for i in range(n_down):
-            self.model += [Conv2dBlock(nch_out, 2 * nch_out, 4, 2, 1, norm=norm, relu=0.0)]
-            nch_out *= 2
+            self.model += [Conv2dBlock(nch_ker, 2 * nch_ker, 4, 2, 1, norm=norm, relu=0.0)]
+            nch_ker *= 2
 
         # residual blocks
         for i in range(nblk):
-            self.model += [ResBlock(nch_out, nch_out,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode='reflection')]
+            self.model += [ResBlock(nch_ker, nch_ker,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode='reflection')]
 
         self.model = nn.Sequential(*self.model)
-        self.output_dim = nch_out     # decoder output_dim과 연결
+        self.output_dim = nch_ker     # decoder output_dim과 연결
 
     def forward(self,x):
         return self.model(x)
 
 class StyleEncoder(nn.Module):
-    def __init__(self, nch_in, nch_out, nch_ker, nch_sty=8, norm=None):
+    def __init__(self, nch_in, nch_ker, nch_sty=8, norm=None):
+        super(StyleEncoder, self).__init__()
         self.model = []
-        self.model += [Conv2dBlock(nch_in, nch_out, 7, 1, 3, norm=norm, relu=0.0)]
+        self.model += [Conv2dBlock(nch_in, nch_ker, 7, 1, 3, norm=norm, relu=0.0)]
 
         for i in range(2):
-            self.model += [Conv2dBlock(nch_out, 2 * nch_out, 4, 2, 1, norm=norm, relu=0.0)]
-            nch_out *= 2
+            self.model += [Conv2dBlock(nch_ker, 2 * nch_ker, 4, 2, 1, norm=norm, relu=0.0)]
+            nch_ker *= 2
 
         # d256, d256
         for i in range(2):
-            self.model += [Conv2dBlock(nch_out, nch_out, 4, 2, 1, norm=norm, relu=0.0)]
+            self.model += [Conv2dBlock(nch_ker, nch_ker, 4, 2, 1, norm=norm, relu=0.0)]
 
         # GAP - global average pooling
         self.model += [nn.AdaptiveAvgPool2d(1)]
 
         # fc8
-        self.model += [nn.Conv2d(nch_out, nch_sty, 1, 1, 0)]
+        self.model += [nn.Conv2d(nch_ker, nch_sty, 1, 1, 0)]
+
+        self.model = nn.Sequential(*self.model)
+        self.output_dim = nch_ker
 
     def forward(self,x):
         return self.model(x)
 
 class Decoder(nn.Module):
-    def __init__(self, nch_in, nch_out, nch_outputdim, norm='adain', nblk=4, n_up=2):
+    def __init__(self, nch_in, nch_out, norm='adain', nblk=4, n_up=2):
         super(Decoder, self).__init__()
 
         self.model = []
 
         # AdaIN residual blocks
         for i in range(nblk):
-            self.model += [ResBlock(nch_out, nch_out,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode='reflection')]
+            self.model += [ResBlock(nch_in, nch_in,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode='reflection')]
 
         # Upsample
         for i in range(n_up):
-            self.model += [nn.Upsamle(scale_factor=2)]
-            self.model += [Conv2dBlock(nch_out, nch_out//2, 5, 1, 2, norm='lnorm', relu=0.0, padding_mode='reflection')]
+            self.model += [nn.Upsample(scale_factor=2)]
+            self.model += [Conv2dBlock(nch_in, nch_in//2, 5, 1, 2, norm='lnorm', relu=0.0, padding_mode='reflection')]
 
-            nch_out = nch_out//2
+            nch_in = nch_in//2
 
         # relu 파트 수정 필요
-        self.model += [Conv2dBlock(nch_out,nch_outputdim, 7, 1, 3, norm=None, relu='tanh', padding_mode='zeros')]
+        self.model += [Conv2dBlock(nch_in,nch_out, 7, 1, 3, norm=None, relu='tanh', padding_mode='zeros')]
         self.model = nn.Sequential(*self.model)
 
     def forward(self,x):
         return self.model(x)
+
+
+class MLP(nn.Module):
+    def __init__(self, nch_in, nch_out, nch_ker=256, nblk=3, norm='none', relu=0.0):
+        super(MLP, self).__init__()
+        self.model = []
+        self.model += [LinearBlock(nch_in, nch_ker, norm=norm, relu=relu)]
+        for i in range(nblk-2):
+            self.model += [LinearBlock(nch_ker,nch_ker, norm=norm, relu=relu)]
+        self.model += [LinearBlock(nch_ker, nch_out, norm='none', relu='none')]
+    def forward(self,x):
+        return self.model(x.view(x.size(0), -1))
 
 
 ##
@@ -217,46 +293,6 @@ class ResNet(nn.Module):
         x = torch.tanh(x)
 
         return x
-
-
-class Discriminator(nn.Module):
-    def __init__(self, nch_in=3, nch_ker=64, norm='bnorm', ncls=5, nrepeat=6, ny_in=256, nx_in=256):
-        super(Discriminator, self).__init__()
-
-        self.nch_in = nch_in
-        self.nch_ker = nch_ker
-        self.norm = norm
-        self.ncls = ncls
-        self.nrepeat = nrepeat
-
-        if norm == 'bnorm':
-            self.bias = False
-        else:
-            self.bias = True
-
-        dsc = []
-        # dsc += [CNR2d(1 * self.nch_in, 1 * self.nch_ker, kernel_size=4, stride=2, padding=1, norm=self.norm, relu=0.01)]
-        dsc += [CNR2d(1 * self.nch_in, 1 * self.nch_ker, kernel_size=4, stride=2, padding=1, norm=self.norm, relu=0.2)]
-
-        for i in range(1, self.nrepeat):
-            # dsc += [CNR2d((2**(i-1)) * self.nch_ker, (2**i) * self.nch_ker, kernel_size=4, stride=2, padding=1, norm=self.norm, relu=0.01)]
-            dsc += [CNR2d((2**(i-1)) * self.nch_ker, (2**i) * self.nch_ker, kernel_size=4, stride=2, padding=1, norm=self.norm, relu=0.2)]
-
-        self.dsc = nn.Sequential(*dsc)
-
-        self.dsc_src = CNR2d((2**(self.nrepeat-1)) * self.nch_ker, 1, kernel_size=4, stride=1, padding=1, norm=[], relu=[], bias=False)
-        if ncls:
-            kernel_size = (int(ny_in/(2**self.nrepeat)), int(nx_in/(2**self.nrepeat)))
-            self.dsc_cls = CNR2d((2**(self.nrepeat-1)) * self.nch_ker, self.ncls, kernel_size=kernel_size, stride=1, padding=0, norm=[], relu=[], bias=False)
-
-    def forward(self, x):
-
-        x = self.dsc(x)
-
-        x_src = self.dsc_src(x)
-        x_cls = self.dsc_cls(x)
-
-        return x_src, x_cls
 
 
 def init_weights(net, init_type='normal', init_gain=0.02):

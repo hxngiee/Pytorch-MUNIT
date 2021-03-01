@@ -19,6 +19,22 @@ class Conv2dBlock(nn.Module):
         return self.cbr(x)
 
 
+class LinearBlock(nn.Module):
+    def __init__(self, nch_in, nch_out, norm='none', relu=None):
+        super(LinearBlock, self).__init__()
+
+        self.fc = nn.Linear(nch_in, nch_out, bias=True)
+        self.norm = Norm2d(nch_out, norm)
+        self.activation = ReLU(relu)
+
+    def forward(self,x):
+        x = self.fc(x)
+        x = self.norm(x)
+        x = self.activation(x)
+
+        return x
+
+
 ##
 class CNR2d(nn.Module):
     def __init__(self, nch_in, nch_out, kernel_size=4, stride=1, padding=1, norm='bnorm', relu=0.0, drop=[], bias=[]):
@@ -189,13 +205,13 @@ class ReLU(nn.Module):
         super(ReLU, self).__init__()
         if relu == 'tanh':
             self.relu = nn.Tanh()
+        elif relu == 'none':
+            self.relu = None
         elif relu > 0:
             self.relu = nn.LeakyReLU(relu, True)
         elif relu == 0:
             self.relu = nn.ReLU(True)
-        elif relu == 'none' or None:
-            self.relu = None
-        elif relu =='lrelu'
+
 
     def forward(self, x):
         return self.relu(x)
