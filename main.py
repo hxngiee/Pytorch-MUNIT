@@ -69,10 +69,13 @@ parser.add_argument('--nch_out', type=int, default=3, dest='nch_out')
 
 parser.add_argument('--nch_ker', type=int, default=64, dest='nch_ker')
 
+parser.add_argument('--nblk', type=int, default=6, dest='nblk')
+
+# parser.add_argument('--ncritic', type=int, default=5, dest='ncritic')
+
 parser.add_argument('--data_type', default='float32', dest='data_type')
 
-parser.add_argument('--nblk', type=int, default=6, dest='nblk')
-# parser.add_argument('--ncritic', type=int, default=5, dest='ncritic')
+
 
 # parser.add_argument('--attrs', '--list', nargs='+', help='selected attributes for the CelebA dataset',
 #                     default=['Black_Hair', 'Blond_Hair', 'Brown_Hair', 'Male', 'Young'], dest='attrs')

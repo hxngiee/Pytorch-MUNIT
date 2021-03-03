@@ -7,6 +7,7 @@ from statistics import mean
 
 import torch
 import torch.nn as nn
+from torch.autograd import Variable
 
 from torchvision import transforms
 from torch.utils.tensorboard import SummaryWriter
@@ -40,6 +41,7 @@ class Train:
 
         self.optim = args.optim
         self.beta1 = args.beta1
+        self.beta2 = args.beta2
 
         self.ny_in = args.ny_in
         self.nx_in = args.nx_in
@@ -167,43 +169,48 @@ class Train:
 
         ## setup network
         # cyclegan Layer.py  파트
-        # netG = UNet(nch_in + ncls, nch_out, nch_ker, norm)
         # netG = ResNet(nch_in + ncls, nch_out, nch_ker, norm, nblk=self.nblk)
         # netD = Discriminator(nch_out, nch_ker, [], ncls=ncls, ny_in=self.ny_out, nx_in=self.nx_out)
 
-        netG_a = Generator(nch_in=nch_in, nch_ker=nch_ker, relu=0.0, padding_mode='reflection')
-        netG_b = Generator(nch_in=nch_in, nch_ker=nch_ker, relu=0.0, padding_mode='reflection')
-        netD_a = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
-        netD_b = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
+        netG_a2b = Generator(nch_in=nch_in, nch_ker=nch_ker, relu=0.0, padding_mode='reflection')
+        netG_b2a = Generator(nch_in=nch_in, nch_ker=nch_ker, relu=0.0, padding_mode='reflection')
+        netD_a2b = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
+        netD_b2a = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
 
-        init_net(netG, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
-        init_net(netD, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
+# 여기서 부터 다시 짜야#########################################################################
+# kaiming init 하는 듯
+        init_net(netG_a2b, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
+        init_net(netG_b2a, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
+        init_net(netD_a2b, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
+        init_net(netD_b2a, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
+
+        ## fix the noise used in sampling
+
 
         ## setup loss & optimization
         fn_REC = nn.L1Loss().to(device)   # L1
-        fn_SRC = nn.BCEWithLogitsLoss().to(device)
-        fn_GP = GradientPaneltyLoss().to(device)
+        # fn_SRC = nn.BCEWithLogitsLoss().to(device)
+        # fn_GP = GradientPaneltyLoss().to(device)
 
-        if self.name_data == 'celeba':
-            fn_CLS = nn.BCEWithLogitsLoss().to(device)   # L1
-        else:
-            # fn_CLS = nn.CrossEntropyLoss().to(device)  # L1
-            fn_CLS = CrossEntropyLoss().to(device)  # L1
+        paramsG_a = netG_a2b.parameters()
+        paramsG_b = netG_b2a.parameters()
+        paramsD_a = netD_a2b.parameters()
+        paramsD_b = netD_b2a.parameters()
 
-        paramsG = netG.parameters()
-        paramsD = netD.parameters()
+        optimG_a = torch.optim.Adam(paramsG_a, lr=lr_G, betas=(self.beta1, self.beta2), weight_decay=0.0001)
+        optimG_b = torch.optim.Adam(paramsG_b, lr=lr_G, betas=(self.beta1, self.beta2), weight_decay=0.0001)
+        optimD_a = torch.optim.Adam(paramsD_a, lr=lr_D, betas=(self.beta1, self.beta2), weight_decay=0.0001)
+        optimD_b = torch.optim.Adam(paramsD_b, lr=lr_D, betas=(self.beta1, self.beta2), weight_decay=0.0001)
 
-        optimG = torch.optim.Adam(paramsG, lr=lr_G, betas=(self.beta1, 0.999))
-        optimD = torch.optim.Adam(paramsD, lr=lr_D, betas=(self.beta1, 0.999))
+        schedG_a = get_scheduler(optimG_a, self.opts)
+        schedG_b = get_scheduler(optimG_b, self.opts)
+        schedD_a = get_scheduler(optimD_a, self.opts)
+        schedD_b = get_scheduler(optimD_b, self.opts)
 
-        # optimG = torch.optim.Adam(itertools.chain(paramsG_a2b, paramsG_b2a), lr=lr_G, betas=(self.beta1, 0.999))
-        # optimD = torch.optim.Adam(itertools.chain(paramsD_a, paramsD_b), lr=lr_D, betas=(self.beta1, 0.999))
-
-        # schedG = get_scheduler(optimG, self.opts)
-        # schedD = get_scheduler(optimD, self.opts)
-
-        # schedG = torch.optim.lr_scheduler.ExponentialLR(optimG, gamma=0.9)
-        # schedD = torch.optim.lr_scheduler.ExponentialLR(optimD, gamma=0.9)
+        schedG_a = torch.optim.lr_scheduler.ExponentialLR(optimG_a, gamma=0.9)
+        schedG_b = torch.optim.lr_scheduler.ExponentialLR(optimG_b, gamma=0.9)
+        schedD_a = torch.optim.lr_scheduler.ExponentialLR(optimD_a, gamma=0.9)
+        schedD_b = torch.optim.lr_scheduler.ExponentialLR(optimD_b, gamma=0.9)
 
         ## load from checkpoints
         st_epoch = 0
@@ -216,8 +223,10 @@ class Train:
 
         for epoch in range(st_epoch + 1, num_epoch + 1):
             ## training phase
-            netG.train()
-            netD.train()
+            netG_a2b.train()
+            netG_b2a.train()
+            netD_a2b.train()
+            netD_b2a.train()
 
             loss_G_src_train = []
             loss_G_cls_train = []
@@ -231,28 +240,53 @@ class Train:
                 def should(freq):
                     return freq > 0 and (i % freq == 0 or i == num_batch_train)
 
-                input = data[0]
-                label_in = data[1].view(-1, ncls, 1, 1)
-                label_out = label_in[torch.randperm(label_in.size(0))]
-
-                domain_in = get_domain(input, label_in)
-                domain_out = get_domain(input, label_out)
+                # dataload시 text 빼고 load 하기(loader_train 파트 수정)
+                # cyclegan처럼 이미지 2개 불러와야
+                input_a = data[0]
+                input_b = data[0]
+                # label_in = data[1].view(-1, ncls, 1, 1)
 
                 # Copy to GPU
                 input = input.to(device)
-                domain_in = domain_in.to(device)
-                domain_out = domain_out.to(device)
-                label_in = label_in.to(device)
-                label_out = label_out.to(device)
 
                 # forward netG
-                output = netG(torch.cat([input, domain_out], dim=1))
-                recon = netG(torch.cat([output, domain_in], dim=1))
+                # forward 먼저 필요하나 체크
+                output = netG(input)
+                recon = netG(output)
 
                 # backward netD
-                set_requires_grad(netD, True)
-                # optimG.zero_grad()
-                optimD.zero_grad()
+                set_requires_grad(netD_a2b, True)
+                set_requires_grad(netD_b2a, True)
+
+                optimD_a.zero_grad()
+                optimD_b.zero_grad()
+
+                # style.dim = 8
+                s_a = Variable(torch.rand(input.size(0) ,8, 1, 1).device)
+                s_b = Variable(torch.rand(input.size(0) ,8, 1, 1).device)
+
+                # encode
+                c_a, s_a_prime = netG_a2b.encode(input_a)
+                c_b, s_b_prime = netG_b2a.encode(input_b)
+
+                # decode (within domain)
+                recon_a = netG_a2b.decode(c_a, s_a_prime)
+                recon_b = netG_b2a.decode(c_b, s_b_prime)
+
+                # decode (cross domain)
+                output_a = netG_b2a.decode(c_b,s_a)
+                output_b = netG_a2b.decode(c_b,s_a)
+
+                # encode again
+                recon_c_b, recon_s_a = netG_b2a.encode(output_a)
+                recon_c_a, recon_s_b = netG_a2b.encode(output_b)
+
+                # decode again
+                ident_a = netG_b2a.decode(recon_c_a, s_a_prime)
+                ident_b = netG_a2b.decode(recon_c_b, s_b_prime)
+
+
+
 
                 src_in, cls_in = netD(input)
                 src_out, cls_out = netD(output.detach())
@@ -335,6 +369,8 @@ class Train:
 
             # # update schduler
             # # schedG.step()
+            # # schedG.step()
+            # # schedD.step()
             # # schedD.step()
 
             ## save
