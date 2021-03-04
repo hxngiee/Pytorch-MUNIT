@@ -174,15 +174,15 @@ class Train:
 
         netG_a2b = Generator(nch_in=nch_in, nch_ker=nch_ker, relu=0.0, padding_mode='reflection')
         netG_b2a = Generator(nch_in=nch_in, nch_ker=nch_ker, relu=0.0, padding_mode='reflection')
-        netD_a2b = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
-        netD_b2a = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
+        netD_a = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
+        netD_b = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
 
 # 여기서 부터 다시 짜야#########################################################################
 # kaiming init 하는 듯
         init_net(netG_a2b, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
         init_net(netG_b2a, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
-        init_net(netD_a2b, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
-        init_net(netD_b2a, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
+        init_net(netD_a, init_type='normal', init_gain=0.02, gpu_iDds=gpu_ids)
+        init_net(netD_b, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
 
         ## fix the noise used in sampling
 
@@ -194,8 +194,8 @@ class Train:
 
         paramsG_a = netG_a2b.parameters()
         paramsG_b = netG_b2a.parameters()
-        paramsD_a = netD_a2b.parameters()
-        paramsD_b = netD_b2a.parameters()
+        paramsD_a = netD_a.parameters()
+        paramsD_b = netD_b.parameters()
 
         optimG_a = torch.optim.Adam(paramsG_a, lr=lr_G, betas=(self.beta1, self.beta2), weight_decay=0.0001)
         optimG_b = torch.optim.Adam(paramsG_b, lr=lr_G, betas=(self.beta1, self.beta2), weight_decay=0.0001)
@@ -225,8 +225,8 @@ class Train:
             ## training phase
             netG_a2b.train()
             netG_b2a.train()
-            netD_a2b.train()
-            netD_b2a.train()
+            netD_a.train()
+            netD_b.train()
 
             loss_G_src_train = []
             loss_G_cls_train = []
@@ -247,7 +247,8 @@ class Train:
                 # label_in = data[1].view(-1, ncls, 1, 1)
 
                 # Copy to GPU
-                input = input.to(device)
+                input_a = input.to(device)
+                input_b = input.to(device)
 
                 # forward netG
                 # forward 먼저 필요하나 체크
@@ -255,15 +256,45 @@ class Train:
                 recon = netG(output)
 
                 # backward netD
-                set_requires_grad(netD_a2b, True)
-                set_requires_grad(netD_b2a, True)
+                set_requires_grad(netD_a, True)
+                set_requires_grad(netD_b, True)
 
                 optimD_a.zero_grad()
                 optimD_b.zero_grad()
 
                 # style.dim = 8
-                s_a = Variable(torch.rand(input.size(0) ,8, 1, 1).device)
-                s_b = Variable(torch.rand(input.size(0) ,8, 1, 1).device)
+                s_a = Variable(torch.randn(input_a.size(0), 8, 1, 1).to(device))
+                s_b = Variable(torch.randn(input_b.size(0), 8, 1, 1).to(device))
+
+                # encode
+                c_a, _ = netG_b2a.encode(input_a)
+                c_b, _ = netG_a2b.encode(input_b)
+
+                # decode (Cross domain)
+                output_a = netG_b2a.decode(c_b, s_a)
+                output_b = netG_a2b.decode(c_a, s_b)
+
+                pred_real_a = netD_a.forward(input_a)
+                pred_fake_a = netD_a.forward(output_a.detach())
+                loss_D_a = 0.5 * (torch.mean((pred_fake_a - 0)**2) + torch.mean((pred_fake_a - 1)**2))
+
+                pred_real_b = netD_b.forward(input_b)
+                pred_fake_b = netD_b.forward(output_b.detach())
+                loss_D_b = 0.5 * (torch.mean((pred_fake_b - 0)**2) + torch.mean((pred_fake_b - 1)**2))
+
+                # total loss
+                loss_D = loss_D_a * wgt_gan + loss_D_b * wgt_gan
+
+                loss_D.backward()
+                optimD_a.step()
+                optimD_b.step()
+
+
+                ## Generator
+
+                # style.dim = 8
+                s_a = Variable(torch.rand(input.size(0) ,8, 1, 1).to(device))
+                s_b = Variable(torch.rand(input.size(0) ,8, 1, 1).to(device))
 
                 # encode
                 c_a, s_a_prime = netG_a2b.encode(input_a)
