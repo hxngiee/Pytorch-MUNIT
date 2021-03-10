@@ -47,19 +47,21 @@ class Dataset(torch.utils.data.Dataset):
         data_a = plt.imread(os.path.join(self.data_dir_a, self.lst_data_a[index]))[:,:,:3]
         if data_a.ndim == 2:
             data_a = data_a[:,:,np.newaxis]
-        if data.dtype == np.uint8:
+        if data_a.dtype == np.uint8:
             data_a = data_a / 255.0
         data['data_a'] = data_a
 
         data_b = plt.imread(os.path.join(self.data_dir_b, self.lst_data_b[index]))[:,:,:3]
         if data_b.ndim == 2:
             data_b = data_b[:,:,np.newaxis]
-        if data.dtype == np.uint8:
+        if data_b.dtype == np.uint8:
             data_b = data_b / 255.0
         data['data_b'] = data_b
 
         if self.transform:
-            data = self.transform(data)
+            data['data_a'] = self.transform(data['data_a'])
+            data['data_b'] = self.transform(data['data_b'])
+            # data = self.transform(data)
 
         return data
 
@@ -80,6 +82,12 @@ class ToTensor(object):
 class Normalize(object):
     def __call__(self, data):
         data = 2 * data - 1
+
+        # print(data)
+        # data['data_a'] = 2*data['data_a'] - 1
+        # domainB에 대해서도 전체리해주는게 맞나?
+        # data['data_b'] = 2*data['data_b'] - 1
+
         return data
 
 
@@ -123,14 +131,20 @@ class CenterCrop(object):
             self.output_size = output_size
 
     def __call__(self, data):
+        #img2img
+        # keys = list(data.keys())
+        # h, w = data[keys[0]].shape[:2]
         h, w = data.shape[:2]
-
         new_h, new_w = self.output_size
 
         top = int(abs(h - new_h) / 2)
         left = int(abs(w - new_w) / 2)
 
         data = data[top: top + new_h, left: left + new_w]
+
+        # for key, value in data.items():
+        #     data[key] = value[top:top+new_h,left:left+new_w]
+        # print(data['data_a'].shape)
 
         return data
 

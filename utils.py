@@ -3,6 +3,9 @@ from __future__ import absolute_import, division, print_function
 import os
 import logging
 import torch
+import torch.nn as nn
+from torch.autograd import Variable
+
 # import argparse
 
 ''''
@@ -77,3 +80,32 @@ class Logger:
         self.__logger.addHandler(handler)
 
         return self.__logger
+## scheduler options for self.opts
+class sched_opts:
+    def __init__(self):
+        self.lr_policy = 'step'
+        self.lr_decay_iters = 100000
+
+
+## vgg module
+
+def vgg_preprocess(batch):
+    tensortype = type(batch.data)
+    (r, g, b) = torch.chunk(batch, 3, dim = 1)
+    batch = torch.cat((b, g, r), dim = 1) # convert RGB to BGR
+    batch = (batch + 1) * 255 * 0.5 # [-1, 1] -> [0, 255]
+    mean = tensortype(batch.data.size()).cuda()
+    mean[:, 0, :, :] = 103.939
+    mean[:, 1, :, :] = 116.779
+    mean[:, 2, :, :] = 123.680
+    batch = batch.sub(Variable(mean)) # subtract mean
+    return batch
+
+def compute_vgg_loss(self, vgg, img, target):
+    instancenorm = nn.InstanceNorm2d(512,affine=False)
+    img_vgg = vgg_preprocess(img)
+    target_vgg = vgg_preprocess(target)
+    img_fea = vgg(img_vgg)
+    target_fea = vgg(target_vgg)
+    return torch.mean((instancenorm(img_fea) - instancenorm(target_fea)) ** 2)
+

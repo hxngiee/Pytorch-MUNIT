@@ -1,6 +1,9 @@
 from model import *
 from dataset import *
 
+# import vgg function, self.opts from utils
+from utils import *
+
 import itertools
 
 from statistics import mean
@@ -31,6 +34,10 @@ class Train:
 
         self.lr_G = args.lr_G
         self.lr_D = args.lr_D
+
+        # scheduler mode
+        # 이거 main으로부터 깔끔히 처리하는 방법 생각해보기 직접상속 안받고
+        self.opts = sched_opts()
 
         self.wgt_gan = args.wgt_gan
         self.wgt_rec_x = args.wgt_rec_x
@@ -161,7 +168,8 @@ class Train:
 
         dataset_train = Dataset(data_dir=os.path.join(dir_data_train,'train'), data_type=self.data_type, transform=transform_train)
 
-        loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=8)
+        # loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=8)
+        loader_train = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0)
 
         num_train = len(dataset_train)
 
@@ -177,11 +185,10 @@ class Train:
         netD_a = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
         netD_b = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
 
-# 여기서 부터 다시 짜야#########################################################################
-# kaiming init 하는 듯
+    # kaiming init 하는 듯
         init_net(netG_a2b, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
         init_net(netG_b2a, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
-        init_net(netD_a, init_type='normal', init_gain=0.02, gpu_iDds=gpu_ids)
+        init_net(netD_a, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
         init_net(netD_b, init_type='normal', init_gain=0.02, gpu_ids=gpu_ids)
 
         ## fix the noise used in sampling
@@ -215,8 +222,9 @@ class Train:
         ## load from checkpoints
         st_epoch = 0
 
-        if train_continue == 'on':
-            netG, netD, optimG, optimD, st_epoch = self.load(dir_chck, netG, netD, optimG, optimD, mode=mode)
+        # 이 파트 수정 필요
+        # if train_continue == 'on':
+        #     netG, netD, optimG, optimD, st_epoch = self.load(dir_chck, netG, netD, optimG, optimD, mode=mode)
 
         ## setup tensorboard
         writer_train = SummaryWriter(log_dir=dir_log_train)
@@ -228,13 +236,17 @@ class Train:
             netD_a.train()
             netD_b.train()
 
-            loss_G_src_train = []
-            loss_G_cls_train = []
-            loss_G_rec_train = []
-
-            loss_D_src_train = []
-            loss_D_cls_train = []
-            loss_D_gp_train = []
+            loss_D_a_train = []
+            loss_D_b_train = []
+            loss_G_rec_a_train = []
+            loss_G_rec_b_train = []
+            loss_G_rec_s_a_train = []
+            loss_G_rec_s_b_train = []
+            loss_G_rec_c_a_train = []
+            loss_G_rec_c_b_train = []
+            loss_G_rec_x_a_train = []
+            loss_G_rec_x_b_train = []
+            loss_G_train = []
 
             for i, data in enumerate(loader_train, 1):
                 def should(freq):
@@ -250,11 +262,6 @@ class Train:
                 input_a = input.to(device)
                 input_b = input.to(device)
 
-                # forward netG
-                # forward 먼저 필요하나 체크
-                output = netG(input)
-                recon = netG(output)
-
                 # backward netD
                 set_requires_grad(netD_a, True)
                 set_requires_grad(netD_b, True)
@@ -266,6 +273,7 @@ class Train:
                 s_a = Variable(torch.randn(input_a.size(0), 8, 1, 1).to(device))
                 s_b = Variable(torch.randn(input_b.size(0), 8, 1, 1).to(device))
 
+                # forward
                 # encode
                 c_a, _ = netG_b2a.encode(input_a)
                 c_b, _ = netG_a2b.encode(input_b)
@@ -291,6 +299,12 @@ class Train:
 
 
                 ## Generator
+                set_requires_grad(netD_a, False)
+                set_requires_grad(netD_b, False)
+
+                optimG_a.zero_grad()
+                optimG_b.zero_grad()
+
 
                 # style.dim = 8
                 s_a = Variable(torch.rand(input.size(0) ,8, 1, 1).to(device))
@@ -306,7 +320,7 @@ class Train:
 
                 # decode (cross domain)
                 output_a = netG_b2a.decode(c_b,s_a)
-                output_b = netG_a2b.decode(c_b,s_a)
+                output_b = netG_a2b.decode(c_a,s_b)
 
                 # encode again
                 recon_c_b, recon_s_a = netG_b2a.encode(output_a)
@@ -316,70 +330,58 @@ class Train:
                 ident_a = netG_b2a.decode(recon_c_a, s_a_prime)
                 ident_b = netG_a2b.decode(recon_c_b, s_b_prime)
 
+                # loss_G
+                pred_fake_a = netD_a.forward(output_a)
+                pred_fake_b = netD_b.forward(output_b)
+
+                loss_G_a2b = torch.mean((pred_fake_a - 1)**2)
+                loss_G_b2a = torch.mean((pred_fake_b - 1)**2)
+
+                loss_G_rec_a = fn_REC(recon_a, input_a)
+                loss_G_rec_b = fn_REC(recon_b, input_b)
+                loss_G_rec_s_a = fn_REC(recon_s_a, s_a)
+                loss_G_rec_s_b = fn_REC(recon_s_a, s_b)
+                loss_G_rec_c_a = fn_REC(recon_c_a,c_a)
+                loss_G_rec_c_b = fn_REC(recon_c_b,c_b)
+                loss_G_rec_x_a = fn_REC(ident_a, input_a)
+                loss_G_rec_x_b = fn_REC(ident_b, input_b)
+
+                loss_G_vgg_a = compute_vgg_loss(output_a, input_b)
+                loss_G_vgg_b = compute_vgg_loss(output_b, input_a)
 
 
+                loss_G = wgt_gan * loss_G_a2b + wgt_gan * loss_G_b2a + \
+                         wgt_rec_x * loss_G_rec_a + wgt_rec_x * loss_G_rec_b + \
+                         wgt_rec_c * loss_G_rec_c_a + wgt_rec_c * loss_G_rec_c_b + \
+                         wgt_rec_s * loss_G_rec_s_a + wgt_rec_s * loss_G_rec_s_b + \
+                         wgt_rec_x_cyc * loss_G_rec_x_a + wgt_rec_x_cyc * loss_G_rec_x_b + \
+                         wgt_vgg * loss_G_vgg_a + wgt_vgg * loss_G_vgg_b
 
-                src_in, cls_in = netD(input)
-                src_out, cls_out = netD(output.detach())
 
-                # Calculate Gradient Penalty term
-                alpha = torch.rand(input.size(0), 1, 1, 1).to(self.device)
-                output_ = (alpha * input + (1 - alpha) * output.detach()).requires_grad_(True)
-                src_out_, _ = netD(output_)
-
-                # BCE loss
-                loss_D_src_in = fn_SRC(src_in, torch.ones_like(src_in))
-                loss_D_src_out = fn_SRC(src_out, torch.zeros_like(src_out))
-                # WGAN loss
-                # loss_D_src_in = torch.mean(src_in)
-                # loss_D_src_out = -torch.mean(src_out)
-                loss_D_src = 0.5 * (loss_D_src_in + loss_D_src_out)
-
-                loss_D_cls_in = fn_CLS(cls_in, label_in)
-                loss_D_cls = loss_D_cls_in
-
-                # Gradient Penalty loss
-                loss_D_gp = fn_GP(src_out_, output_)
-
-                loss_D = loss_D_src + wgt_cls * loss_D_cls + wgt_gp * loss_D_gp
                 loss_D.backward()
-                optimD.step()
+                optimG_a.step()
+                optimG_b.step()
 
                 # get losses
-                loss_D_src_train += [loss_D_src.item()]
-                loss_D_cls_train += [loss_D_cls.item()]
-                loss_D_gp_train += [loss_D_gp.item()]
+                loss_G_rec_a_train += [loss_G_rec_a.item()]
+                loss_G_rec_b_train += [loss_G_rec_b.item()]
+                loss_G_rec_s_a_train += [loss_G_rec_s_a.item()]
+                loss_G_rec_s_b_train += [loss_G_rec_s_b.item()]
+                loss_G_rec_c_a_train += [loss_G_rec_c_a.item()]
+                loss_G_rec_c_b_train += [loss_G_rec_c_b.item()]
+                loss_G_rec_x_a_train += [loss_G_rec_x_a.item()]
+                loss_G_rec_x_b_train += [loss_G_rec_x_b.item()]
+                loss_G_train += [loss_G.item()]
 
-                if (i - 1) % ncritic == 0:
-                    # backward netG
-                    set_requires_grad(netD, False)
-                    optimG.zero_grad()
-                    # optimD.zero_grad()
-
-                    src_out, cls_out = netD(output)
-
-                    # BCE Loss
-                    loss_G_src = fn_SRC(src_out, torch.ones_like(src_out))
-                    # WGAN Loss
-                    # loss_G_src = torch.mean(src_out)
-                    loss_G_cls = fn_CLS(cls_out, label_out)
-                    loss_G_rec = fn_REC(input, recon)
-
-                    loss_G = loss_G_src + wgt_cls * loss_G_cls + wgt_rec * loss_G_rec
-
-                    loss_G.backward()
-                    optimG.step()
-
-                    # get losses
-                    loss_G_src_train += [loss_G_src.item()]
-                    loss_G_cls_train += [loss_G_cls.item()]
-                    loss_G_rec_train += [loss_G_rec.item()]
+                loss_D_a_train += [loss_D_a.item()]
+                loss_D_b_train += [loss_D_b.item()]
 
                 print('TRAIN: EPOCH %d: BATCH %04d/%04d: '
-                      'G_src: %.4f G_cls: %.4f G_rec: %.4f D_src: %.4f D_cls: %.4f D_gp: %.4f'
+                      'G_train: %.4f D_a: %.4f D_b: %.4f'
                       % (epoch, i, num_batch_train,
-                         mean(loss_G_src_train), mean(loss_G_cls_train), mean(loss_G_rec_train),
-                         mean(loss_D_src_train), mean(loss_D_cls_train), mean(loss_D_gp_train)))
+                         mean(loss_G), mean(loss_D_a_train), mean(loss_D_b_train)))
+
+
 
                 if should(num_freq_disp):
                     ## show output
@@ -391,12 +393,13 @@ class Train:
                     writer_train.add_images('output', output, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
                     writer_train.add_images('recon', recon, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
 
-            writer_train.add_scalar('loss_G_src', mean(loss_G_src_train), epoch)
-            writer_train.add_scalar('loss_G_cls', mean(loss_G_cls_train), epoch)
-            writer_train.add_scalar('loss_G_rec', mean(loss_G_rec_train), epoch)
-            writer_train.add_scalar('loss_D_src', mean(loss_D_src_train), epoch)
-            writer_train.add_scalar('loss_D_cls', mean(loss_D_cls_train), epoch)
-            writer_train.add_scalar('loss_D_gp', mean(loss_D_gp_train), epoch)
+## tensorboard Loss 기록파트 잠시 접어둠
+            # writer_train.add_scalar('loss_G_src', mean(loss_G_src_train), epoch)
+            # writer_train.add_scalar('loss_G_cls', mean(loss_G_cls_train), epoch)
+            # writer_train.add_scalar('loss_G_rec', mean(loss_G_rec_train), epoch)
+            # writer_train.add_scalar('loss_D_src', mean(loss_D_src_train), epoch)
+            # writer_train.add_scalar('loss_D_cls', mean(loss_D_cls_train), epoch)
+            # writer_train.add_scalar('loss_D_gp', mean(loss_D_gp_train), epoch)
 
             # # update schduler
             # # schedG.step()
@@ -404,9 +407,10 @@ class Train:
             # # schedD.step()
             # # schedD.step()
 
+## Save파트 재작성 필요
             ## save
-            if (epoch % num_freq_save) == 0:
-                self.save(dir_chck, netG, netD, optimG, optimD, epoch)
+            # if (epoch % num_freq_save) == 0:
+            #     self.save(dir_chck, netG, netD, optimG, optimD, epoch)
 
         writer_train.close()
 
@@ -445,10 +449,6 @@ class Train:
         # transform_test = transforms.Compose([Normalize(), ToTensor()])
         transform_test = transforms.Compose([CenterCrop((self.ny_load, self.nx_load)), Normalize(), RandomFlip(), Rescale((self.ny_in, self.nx_in)), ToTensor()])
         transform_inv = transforms.Compose([ToNumpy(), Denomalize()])
-
-        # dataset_test = Dataset(dir_data_test, data_type=self.data_type, transform=transform_test)
-        #
-        # loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=8)
 
         dataset_test = Dataset(dir_data_test, data_type=self.data_type, transform=transform_test, attrs=attrs, mode='test')
 
