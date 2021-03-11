@@ -6,7 +6,7 @@ from torch.nn import init
 from torch.optim import lr_scheduler
 
 class Generator(nn.Module):
-    def __init__(self, nch_in, nch_ker, norm=None, relu=0.0, padding_mode='reflection'):
+    def __init__(self, nch_in, nch_ker, norm = None, relu=0.0, padding_mode='reflection'):
         super(Generator, self).__init__()
         self.nch_ker = nch_ker
         self.style_dim = 8
@@ -22,7 +22,7 @@ class Generator(nn.Module):
         self.dec = Decoder(nch_in = self.enc_content.output_dim, nch_out = 3, norm='adain')
 
         # MLP to generate AdaIN params
-        self.mlp = MLP(nch_in = self.style_dim,nch_out = self.get_num_adain_params(self.dec), nch_ker=self.mlp_dim, nblk=3, norm='none', relu=relu)
+        self.mlp = MLP(nch_in = self.style_dim,nch_out = self.get_num_adain_params(self.dec), nch_ker=self.mlp_dim, nblk=3, norm=None, relu=relu)
 
     def forward(self, x):
         content, style_fake = self.encode(x)
@@ -66,7 +66,7 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module):
     # Multi-scale Discriminator
-    def __init__(self, nch_in, nch_ker, norm='none', relu=0.0, padding_mode='reflection'):
+    def __init__(self, nch_in, nch_ker, norm=None, relu=0.0, padding_mode='reflection'):
         super(Discriminator, self).__init__()
         self.nch_in = nch_in
         self.nch_ker = nch_ker
@@ -74,6 +74,7 @@ class Discriminator(nn.Module):
         self.n_layer = 4
 
         self.norm = norm
+        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1,1], count_include_pad=False)
         # self.activ = relu # lrelu 씀
         # self.loss # GAN Loss[lsgan/nsgan]
 
@@ -86,7 +87,7 @@ class Discriminator(nn.Module):
     def make_net(self):
         nch_ker = self.nch_ker
         dk_layer = []
-        dk_layer += [Conv2dBlock(self.nch_in, nch_ker, 4, 2, 1, norm='none', relu='none', padding_mode='reflection')]
+        dk_layer += [Conv2dBlock(self.nch_in, nch_ker, 4, 2, 1, norm=None, relu=None, padding_mode='reflection')]
         for i in range(self.n_layer - 1):
             dk_layer += [Conv2dBlock(nch_ker, 2 * nch_ker,4, 2, 1, norm=self.norm, relu=0.2, padding_mode='reflection')]
             nch_ker *= 2
@@ -97,7 +98,7 @@ class Discriminator(nn.Module):
         outputs = []
         for model in self.cnns:
             outputs.append(model(x))
-            x = nn.AvgPool2d(3, stride=2, padding=[1,1], count_include_pad=False)
+            x = self.downsample(x)
         return outputs
 
 
@@ -175,13 +176,14 @@ class Decoder(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, nch_in, nch_out, nch_ker=256, nblk=3, norm='none', relu=0.0):
+    def __init__(self, nch_in, nch_out, nch_ker=256, nblk=3, norm=None, relu=0.0):
         super(MLP, self).__init__()
         self.model = []
         self.model += [LinearBlock(nch_in, nch_ker, norm=norm, relu=relu)]
         for i in range(nblk-2):
             self.model += [LinearBlock(nch_ker,nch_ker, norm=norm, relu=relu)]
-        self.model += [LinearBlock(nch_ker, nch_out, norm='none', relu='none')]
+        self.model += [LinearBlock(nch_ker, nch_out, norm=None, relu=None)]
+        self.model = nn.Sequential(*self.model)
     def forward(self,x):
         return self.model(x.view(x.size(0), -1))
 

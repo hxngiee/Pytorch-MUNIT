@@ -7,11 +7,19 @@ import torch.nn.functional as F
 class Conv2dBlock(nn.Module):
     def __init__(self, nch_in, nch_out, kernel_size=4, stride=1, padding=1, norm='inorm', relu=0.0, padding_mode='zeros', bias=True):
         super(Conv2dBlock, self).__init__()
+
         layer = []
-        layer += [Padding(padding=padding, padding_mode=padding_mode)]
+
+        if padding_mode != None:
+            layer += [Padding(padding=padding, padding_mode=padding_mode)]
+
         layer += [Conv2d(nch_in,nch_out,kernel_size=kernel_size,stride=stride,padding=padding,bias=[])]
-        layer += [Norm2d(nch_out, norm)]
-        layer += [ReLU(relu)]
+
+        if norm != None:
+            layer += [Norm2d(nch_out, norm)]
+
+        if relu != None:
+            layer += [ReLU(relu)]
 
         self.cbr = nn.Sequential(*layer)
 
@@ -20,19 +28,23 @@ class Conv2dBlock(nn.Module):
 
 
 class LinearBlock(nn.Module):
-    def __init__(self, nch_in, nch_out, norm='none', relu=None):
+    def __init__(self, nch_in, nch_out, norm=None, relu=None):
         super(LinearBlock, self).__init__()
 
-        self.fc = nn.Linear(nch_in, nch_out, bias=True)
-        self.norm = Norm2d(nch_out, norm)
-        self.activation = ReLU(relu)
+        layer = []
+
+        layer += [nn.Linear(nch_in,nch_out,bias=True)]
+
+        if norm != None:
+            layer += [Norm2d(nch_out,norm)]
+
+        if relu != None:
+            layer += [ReLU(relu)]
+
+        self.lbr = nn.Sequential(*layer)
 
     def forward(self,x):
-        x = self.fc(x)
-        x = self.norm(x)
-        x = self.activation(x)
-
-        return x
+        return self.lbr(x)
 
 
 ##
@@ -192,11 +204,13 @@ class Norm2d(nn.Module):
             self.norm = LayerNorm(nch)
         elif norm_mode == 'adain':
             self.norm = AdaptiveInstanceNorm2d(nch)
-        elif norm_mode == 'none' or None:
+        elif norm_mode == 'none' or norm_mode == None:
             self.norm = None
 
     def forward(self, x):
-        return self.norm(x)
+        if self.norm:
+            return self.norm(x)
+        # return self.norm(x)
 
 
 # Activation으로 Naming 변경 필요
@@ -231,7 +245,6 @@ class Padding(nn.Module):
 
     def forward(self, x):
         return self.padding(x)
-
 
 class Pooling2d(nn.Module):
     def __init__(self, nch=[], pool=2, type='avg'):

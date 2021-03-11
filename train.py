@@ -252,15 +252,9 @@ class Train:
                 def should(freq):
                     return freq > 0 and (i % freq == 0 or i == num_batch_train)
 
-                # dataload시 text 빼고 load 하기(loader_train 파트 수정)
-                # cyclegan처럼 이미지 2개 불러와야
-                input_a = data[0]
-                input_b = data[0]
-                # label_in = data[1].view(-1, ncls, 1, 1)
-
                 # Copy to GPU
-                input_a = input.to(device)
-                input_b = input.to(device)
+                input_a = data['data_a'].to(device)
+                input_b = data['data_b'].to(device)
 
                 # backward netD
                 set_requires_grad(netD_a, True)
@@ -284,7 +278,12 @@ class Train:
 
                 pred_real_a = netD_a.forward(input_a)
                 pred_fake_a = netD_a.forward(output_a.detach())
-                loss_D_a = 0.5 * (torch.mean((pred_fake_a - 0)**2) + torch.mean((pred_fake_a - 1)**2))
+
+                print(pred_real_a[0].shape)
+                import sys
+                sys.exit()
+                # loss_D_a = 0.5 * (torch.mean((pred_fake_a - 0)**2) + torch.mean((pred_fake_a - 1)**2))
+                # loss_D_a = 0.5 * (torch.mean((pred_fake_a - 0)**2) + torch.mean((pred_fake_a - 1)**2))
 
                 pred_real_b = netD_b.forward(input_b)
                 pred_fake_b = netD_b.forward(output_b.detach())
