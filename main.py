@@ -55,16 +55,18 @@ parser.add_argument('--beta1', default=0.5, dest='beta1')
 parser.add_argument('--beta2', default=0.999, dest='beta2')
 
 # 원본 이미지 resize pre-processing
-parser.add_argument('--ny_load', type=int, default=178, dest='ny_load')
-parser.add_argument('--nx_load', type=int, default=178, dest='nx_load')
+# parser.add_argument('--ny_load', type=int, default=178, dest='ny_load')
+# parser.add_argument('--nx_load', type=int, default=178, dest='nx_load')
+parser.add_argument('--ny_load', type=int, default=256, dest='ny_load')
+parser.add_argument('--nx_load', type=int, default=256, dest='nx_load')
 parser.add_argument('--nch_load', type=int, default=3, dest='nch_load')
 
-parser.add_argument('--ny_in', type=int, default=128, dest='ny_in')
-parser.add_argument('--nx_in', type=int, default=128, dest='nx_in')
+parser.add_argument('--ny_in', type=int, default=256, dest='ny_in')
+parser.add_argument('--nx_in', type=int, default=256, dest='nx_in')
 parser.add_argument('--nch_in', type=int, default=3, dest='nch_in')
 
-parser.add_argument('--ny_out', type=int, default=128, dest='ny_out')
-parser.add_argument('--nx_out', type=int, default=128, dest='nx_out')
+parser.add_argument('--ny_out', type=int, default=256, dest='ny_out')
+parser.add_argument('--nx_out', type=int, default=256, dest='nx_out')
 parser.add_argument('--nch_out', type=int, default=3, dest='nch_out')
 
 parser.add_argument('--nch_ker', type=int, default=64, dest='nch_ker')

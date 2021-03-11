@@ -276,18 +276,18 @@ class Train:
                 output_a = netG_b2a.decode(c_b, s_a)
                 output_b = netG_a2b.decode(c_a, s_b)
 
+                #pred_fake_a ->outs0,  pred_real_a ->outs1
                 pred_real_a = netD_a.forward(input_a)
                 pred_fake_a = netD_a.forward(output_a.detach())
 
-                print(pred_real_a[0].shape)
-                import sys
-                sys.exit()
-                # loss_D_a = 0.5 * (torch.mean((pred_fake_a - 0)**2) + torch.mean((pred_fake_a - 1)**2))
-                # loss_D_a = 0.5 * (torch.mean((pred_fake_a - 0)**2) + torch.mean((pred_fake_a - 1)**2))
+                for out0, out1 in zip(pred_fake_a,pred_real_a):
+                    loss_D_a = 0.5 * (torch.mean((out0 - 0) ** 2) + torch.mean((out1 - 1) ** 2))
 
                 pred_real_b = netD_b.forward(input_b)
                 pred_fake_b = netD_b.forward(output_b.detach())
-                loss_D_b = 0.5 * (torch.mean((pred_fake_b - 0)**2) + torch.mean((pred_fake_b - 1)**2))
+
+                for out0, out1 in zip(pred_fake_b,pred_real_b):
+                    loss_D_b = 0.5 * (torch.mean((out0 - 0)**2) + torch.mean((out1 - 1)**2))
 
                 # total loss
                 loss_D = loss_D_a * wgt_gan + loss_D_b * wgt_gan
@@ -306,14 +306,15 @@ class Train:
 
 
                 # style.dim = 8
-                s_a = Variable(torch.rand(input.size(0) ,8, 1, 1).to(device))
-                s_b = Variable(torch.rand(input.size(0) ,8, 1, 1).to(device))
+                s_a = Variable(torch.rand(input_a.size(0) ,8, 1, 1).to(device))
+                s_b = Variable(torch.rand(input_b.size(0) ,8, 1, 1).to(device))
 
                 # encode
                 c_a, s_a_prime = netG_a2b.encode(input_a)
                 c_b, s_b_prime = netG_b2a.encode(input_b)
 
                 # decode (within domain)
+##########decode파트 이상
                 recon_a = netG_a2b.decode(c_a, s_a_prime)
                 recon_b = netG_b2a.decode(c_b, s_b_prime)
 
@@ -333,8 +334,10 @@ class Train:
                 pred_fake_a = netD_a.forward(output_a)
                 pred_fake_b = netD_b.forward(output_b)
 
-                loss_G_a2b = torch.mean((pred_fake_a - 1)**2)
-                loss_G_b2a = torch.mean((pred_fake_b - 1)**2)
+                for out0 in pred_fake_a:
+                    loss_G_a2b = torch.mean((out0 - 1)**2)
+                for out0 in pred_fake_b:
+                    loss_G_b2a = torch.mean((out0 - 1)**2)
 
                 loss_G_rec_a = fn_REC(recon_a, input_a)
                 loss_G_rec_b = fn_REC(recon_b, input_b)
@@ -345,19 +348,19 @@ class Train:
                 loss_G_rec_x_a = fn_REC(ident_a, input_a)
                 loss_G_rec_x_b = fn_REC(ident_b, input_b)
 
-                loss_G_vgg_a = compute_vgg_loss(output_a, input_b)
-                loss_G_vgg_b = compute_vgg_loss(output_b, input_a)
+                # loss_G_vgg_a = compute_vgg_loss(vgg추가해야함,output_a, input_b)
+                # loss_G_vgg_b = compute_vgg_loss(vgg추가해야함,output_b, input_a)
 
 
                 loss_G = wgt_gan * loss_G_a2b + wgt_gan * loss_G_b2a + \
                          wgt_rec_x * loss_G_rec_a + wgt_rec_x * loss_G_rec_b + \
                          wgt_rec_c * loss_G_rec_c_a + wgt_rec_c * loss_G_rec_c_b + \
                          wgt_rec_s * loss_G_rec_s_a + wgt_rec_s * loss_G_rec_s_b + \
-                         wgt_rec_x_cyc * loss_G_rec_x_a + wgt_rec_x_cyc * loss_G_rec_x_b + \
-                         wgt_vgg * loss_G_vgg_a + wgt_vgg * loss_G_vgg_b
+                         wgt_rec_x_cyc * loss_G_rec_x_a + wgt_rec_x_cyc * loss_G_rec_x_b
+                         # wgt_vgg * loss_G_vgg_a + wgt_vgg * loss_G_vgg_b
 
 
-                loss_D.backward()
+                loss_G.backward()
                 optimG_a.step()
                 optimG_b.step()
 
@@ -378,7 +381,7 @@ class Train:
                 print('TRAIN: EPOCH %d: BATCH %04d/%04d: '
                       'G_train: %.4f D_a: %.4f D_b: %.4f'
                       % (epoch, i, num_batch_train,
-                         mean(loss_G), mean(loss_D_a_train), mean(loss_D_b_train)))
+                         mean(loss_G_train), mean(loss_D_a_train), mean(loss_D_b_train)))
 
 
 

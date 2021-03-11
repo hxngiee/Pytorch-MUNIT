@@ -5,7 +5,7 @@ import torch.nn.functional as F
 # 왜 패딩을 이렇게 분리했지
 # Resnet에서도 그러네
 class Conv2dBlock(nn.Module):
-    def __init__(self, nch_in, nch_out, kernel_size=4, stride=1, padding=1, norm='inorm', relu=0.0, padding_mode='zeros', bias=True):
+    def __init__(self, nch_in, nch_out, kernel_size, stride, padding, norm='inorm', relu=0.0, padding_mode='zeros', bias=True):
         super(Conv2dBlock, self).__init__()
 
         layer = []
@@ -13,6 +13,7 @@ class Conv2dBlock(nn.Module):
         if padding_mode != None:
             layer += [Padding(padding=padding, padding_mode=padding_mode)]
 
+        # 아니 MUNIT 원래 Conv2d에서 코드에서 왜 padding 지웠지
         layer += [Conv2d(nch_in,nch_out,kernel_size=kernel_size,stride=stride,padding=padding,bias=[])]
 
         if norm != None:
@@ -25,7 +26,6 @@ class Conv2dBlock(nn.Module):
 
     def forward(self,x):
         return self.cbr(x)
-
 
 class LinearBlock(nn.Module):
     def __init__(self, nch_in, nch_out, norm=None, relu=None):
@@ -45,7 +45,6 @@ class LinearBlock(nn.Module):
 
     def forward(self,x):
         return self.lbr(x)
-
 
 ##
 class CNR2d(nn.Module):
@@ -105,32 +104,47 @@ class DECNR2d(nn.Module):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, nch_in, nch_out, kernel_size=3, stride=1, padding=1, padding_mode='reflection', norm='inorm', relu=0.0, drop=[], bias=[]):
-        super().__init__()
+    def __init__(self, dim, norm='in', activation='relu', pad_type='zero'):
+        super(ResBlock, self).__init__()
 
-        if bias == []:
-            if norm == 'bnorm':
-                bias = False
-            else:
-                bias = True
-
-        layers = []
-
-        # 1st conv
-        layers += [Padding(padding, padding_mode=padding_mode)]
-        layers += [CNR2d(nch_in, nch_out, kernel_size=kernel_size, stride=stride, padding=0, norm=norm, relu=relu)]
-
-        if drop != []:
-            layers += [nn.Dropout2d(drop)]
-
-        # 2nd conv
-        layers += [Padding(padding, padding_mode=padding_mode)]
-        layers += [CNR2d(nch_in, nch_out, kernel_size=kernel_size, stride=stride, padding=0, norm=norm, relu=[])]
-
-        self.resblk = nn.Sequential(*layers)
+        model = []
+        model += [Conv2dBlock(dim ,dim, 3, 1, 1, norm=norm, relu=0.0, padding_mode=pad_type)]
+        model += [Conv2dBlock(dim ,dim, 3, 1, 1, norm=norm, relu=None, padding_mode=pad_type)]
+        self.model = nn.Sequential(*model)
 
     def forward(self, x):
-        return x + self.resblk(x)
+        residual = x
+        out = self.model(x)
+        out += residual
+        return out
+
+# class ResBlock(nn.Module):
+#     def __init__(self, nch_in, nch_out, kernel_size=3, stride=1, padding=1, padding_mode='reflection', norm='inorm', relu=0.0, drop=[], bias=[]):
+#         super().__init__()
+#
+#         if bias == []:
+#             if norm == 'bnorm':
+#                 bias = False
+#             else:
+#                 bias = True
+#
+#         layers = []
+#
+#         # 1st conv
+#         layers += [Padding(padding, padding_mode=padding_mode)]
+#         layers += [CNR2d(nch_in, nch_out, kernel_size=kernel_size, stride=stride, padding=0, norm=norm, relu=relu)]
+#
+#         if drop != []:
+#             layers += [nn.Dropout2d(drop)]
+#
+#         # 2nd conv
+#         layers += [Padding(padding, padding_mode=padding_mode)]
+#         layers += [CNR2d(nch_in, nch_out, kernel_size=kernel_size, stride=stride, padding=0, norm=norm, relu=[])]
+#
+#         self.resblk = nn.Sequential(*layers)
+#
+#     def forward(self, x):
+#         return x + self.resblk(x)
 
 
 class CNR1d(nn.Module):
@@ -159,11 +173,11 @@ class CNR1d(nn.Module):
     def forward(self, x):
         return self.cbr(x)
 
-
 class Conv2d(nn.Module):
     def __init__(self, nch_in, nch_out, kernel_size=4, stride=1, padding=1, bias=True):
         super(Conv2d, self).__init__()
-        self.conv = nn.Conv2d(nch_in, nch_out, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)
+        # self.conv = nn.Conv2d(nch_in, nch_out, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)
+        self.conv = nn.Conv2d(nch_in, nch_out, kernel_size=kernel_size, stride=stride, bias=bias)
 
     def forward(self, x):
         return self.conv(x)

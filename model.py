@@ -17,9 +17,11 @@ class Generator(nn.Module):
         self.enc_style = StyleEncoder(nch_in=nch_in, nch_ker=nch_ker, nch_sty=self.style_dim, norm=None)
 
         # Content Encoder
-        self.enc_content = ContentEncoder(nch_in=nch_in, nch_ker=nch_ker, norm='inorm', nblk=4, n_down=2)
+        self.enc_content = ContentEncoder(nch_in=nch_in, nch_ker=nch_ker, norm='inorm', padding_mode=padding_mode, nblk=4, n_down=2)
 
-        self.dec = Decoder(nch_in = self.enc_content.output_dim, nch_out = 3, norm='adain')
+        # self.enc_content.output_dim 256
+##### Decoder 파트 이상
+        self.dec = Decoder(nch_in = self.enc_content.output_dim, nch_out = 3, norm='adain', relu=0.2, padding_mode=padding_mode)
 
         # MLP to generate AdaIN params
         self.mlp = MLP(nch_in = self.style_dim,nch_out = self.get_num_adain_params(self.dec), nch_ker=self.mlp_dim, nblk=3, norm=None, relu=relu)
@@ -103,25 +105,27 @@ class Discriminator(nn.Module):
 
 
 class ContentEncoder(nn.Module):
-    def __init__(self,nch_in, nch_ker, norm, nblk=4, n_down=2):
+    def __init__(self,nch_in, nch_ker, norm, padding_mode, nblk=4, n_down=2):
         super(ContentEncoder, self).__init__()
 
         self.model = []
-        self.model += [Conv2dBlock(nch_in,nch_ker,7,1,3, norm=norm, relu=0.0)]
+        self.model += [Conv2dBlock(nch_in,nch_ker,7,1,3, norm=norm, relu=0.0, padding_mode=padding_mode)]
 
         # downsampling blocks
         for i in range(n_down):
-            self.model += [Conv2dBlock(nch_ker, 2 * nch_ker, 4, 2, 1, norm=norm, relu=0.0)]
+            self.model += [Conv2dBlock(nch_ker, 2 * nch_ker, 4, 2, 1, norm=norm, relu=0.0, padding_mode=padding_mode)]
             nch_ker *= 2
 
         # residual blocks
-        for i in range(nblk):
-            self.model += [ResBlock(nch_ker, nch_ker,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode='reflection')]
+        self.model += [ResBlocks(nblk, nch_ker, norm=norm, activation='relu', pad_type='reflection')]
+        # for i in range(nblk):
+        #     self.model += [ResBlock(nch_ker, nch_ker,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode=padding_mode)]
 
         self.model = nn.Sequential(*self.model)
         self.output_dim = nch_ker     # decoder output_dim과 연결
 
     def forward(self,x):
+
         return self.model(x)
 
 class StyleEncoder(nn.Module):
@@ -151,24 +155,28 @@ class StyleEncoder(nn.Module):
         return self.model(x)
 
 class Decoder(nn.Module):
-    def __init__(self, nch_in, nch_out, norm='adain', nblk=4, n_up=2):
+    def __init__(self, nch_in, nch_out, norm='adain', relu=None, padding_mode='zeros', nblk=4, n_up=2):
         super(Decoder, self).__init__()
 
         self.model = []
 
+        # self.model += [ResBlocks(nblk, nch_in, norm, relu, padding_mode)]
+        self.model += [ResBlocks(nblk, nch_in, norm, relu, pad_type=padding_mode)]
+
         # AdaIN residual blocks
-        for i in range(nblk):
-            self.model += [ResBlock(nch_in, nch_in,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode='reflection')]
+        # for i in range(nblk):
+        #     self.model += [ResBlock(nch_in, nch_in,kernel_size=3, stride=1, padding=1, norm=norm, relu=0.0, padding_mode=padding_mode)]
+        #     self.model += [ResBlock(nch_in, nch_in,kernel_size=3, stride=1, padding=1, norm=norm, relu=[], padding_mode=padding_mode)]
 
         # Upsample
         for i in range(n_up):
             self.model += [nn.Upsample(scale_factor=2)]
-            self.model += [Conv2dBlock(nch_in, nch_in//2, 5, 1, 2, norm='lnorm', relu=0.0, padding_mode='reflection')]
+            self.model += [Conv2dBlock(nch_in, nch_in//2, 5, 1, 2, norm='lnorm', relu=0.0, padding_mode=padding_mode)]
 
             nch_in = nch_in//2
 
         # relu 파트 수정 필요
-        self.model += [Conv2dBlock(nch_in,nch_out, 7, 1, 3, norm=None, relu='tanh', padding_mode='zeros')]
+        self.model += [Conv2dBlock(nch_in,nch_out, 7, 1, 3, norm=None, relu='tanh', padding_mode=padding_mode)]
         self.model = nn.Sequential(*self.model)
 
     def forward(self,x):
@@ -187,6 +195,18 @@ class MLP(nn.Module):
     def forward(self,x):
         return self.model(x.view(x.size(0), -1))
 
+
+class ResBlocks(nn.Module):
+    def __init__(self, num_blocks, dim, norm='in', activation='relu', pad_type='zero'):
+        super(ResBlocks, self).__init__()
+        self.model = []
+        for i in range(num_blocks):
+            # self.model += [ResBlock(dim, norm=norm, relu=activation, padding_mode=pad_type)]
+            self.model += [ResBlock(dim, norm=norm, activation=activation, pad_type=pad_type)]
+        self.model = nn.Sequential(*self.model)
+
+    def forward(self, x):
+        return self.model(x)
 
 ##
 class UNet(nn.Module):
