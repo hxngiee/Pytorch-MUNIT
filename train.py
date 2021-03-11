@@ -176,10 +176,6 @@ class Train:
         num_batch_train = int((num_train / batch_size) + ((num_train % batch_size) != 0))
 
         ## setup network
-        # cyclegan Layer.py  파트
-        # netG = ResNet(nch_in + ncls, nch_out, nch_ker, norm, nblk=self.nblk)
-        # netD = Discriminator(nch_out, nch_ker, [], ncls=ncls, ny_in=self.ny_out, nx_in=self.nx_out)
-
         netG_a2b = Generator(nch_in=nch_in, nch_ker=nch_ker, relu=0.0, padding_mode='reflection')
         netG_b2a = Generator(nch_in=nch_in, nch_ker=nch_ker, relu=0.0, padding_mode='reflection')
         netD_a = Discriminator(nch_in=nch_in, nch_ker=nch_ker)
@@ -238,6 +234,9 @@ class Train:
 
             loss_D_a_train = []
             loss_D_b_train = []
+
+            loss_G_a2b_train = []
+            loss_G_b2a_train = []
             loss_G_rec_a_train = []
             loss_G_rec_b_train = []
             loss_G_rec_s_a_train = []
@@ -246,7 +245,6 @@ class Train:
             loss_G_rec_c_b_train = []
             loss_G_rec_x_a_train = []
             loss_G_rec_x_b_train = []
-            loss_G_train = []
 
             for i, data in enumerate(loader_train, 1):
                 def should(freq):
@@ -303,7 +301,6 @@ class Train:
 
                 optimG_a.zero_grad()
                 optimG_b.zero_grad()
-
 
                 # style.dim = 8
                 s_a = Variable(torch.rand(input_a.size(0) ,8, 1, 1).to(device))
@@ -365,6 +362,12 @@ class Train:
                 optimG_b.step()
 
                 # get losses
+                loss_D_a_train += [loss_D_a.item()]
+                loss_D_b_train += [loss_D_b.item()]
+
+
+                loss_G_a2b_train += [loss_G_a2b.item()]
+                loss_G_b2a_train += [loss_G_b2a.item()]
                 loss_G_rec_a_train += [loss_G_rec_a.item()]
                 loss_G_rec_b_train += [loss_G_rec_b.item()]
                 loss_G_rec_s_a_train += [loss_G_rec_s_a.item()]
@@ -373,41 +376,52 @@ class Train:
                 loss_G_rec_c_b_train += [loss_G_rec_c_b.item()]
                 loss_G_rec_x_a_train += [loss_G_rec_x_a.item()]
                 loss_G_rec_x_b_train += [loss_G_rec_x_b.item()]
-                loss_G_train += [loss_G.item()]
-
-                loss_D_a_train += [loss_D_a.item()]
-                loss_D_b_train += [loss_D_b.item()]
-
-                print('TRAIN: EPOCH %d: BATCH %04d/%04d: '
-                      'G_train: %.4f D_a: %.4f D_b: %.4f'
-                      % (epoch, i, num_batch_train,
-                         mean(loss_G_train), mean(loss_D_a_train), mean(loss_D_b_train)))
 
 
+                print('TRAIN: EPOCH %d: BATCH %03d/%04d: '
+                      "GEN a2b %.4f b2a %.4f | "
+                      "DISC a %.4f b %.4f | "
+                      "CYCLE a %.4f b %.4f | "
+                      "IDENT a %.4f b %.4f | "
+                      "RECON_S a %.4f b %.4f | "
+                      "RECON_C a %.4f b %.4f | " % (epoch, i, num_batch_train,
+                                                   mean(loss_G_a2b_train), mean(loss_G_b2a_train), mean(loss_D_a_train), mean(loss_D_b_train),
+                                                   mean(loss_G_rec_a_train), mean(loss_G_rec_b_train), mean(loss_G_rec_x_a_train), mean(loss_G_rec_x_b_train),
+                                                   mean(loss_G_rec_s_a_train),mean(loss_G_rec_s_b_train),mean(loss_G_rec_c_a_train), mean(loss_G_rec_c_b_train)))
 
                 if should(num_freq_disp):
                     ## show output
-                    input = transform_inv(input)
-                    output = transform_inv(output)
-                    recon = transform_inv(recon)
+                    input_a = transform_inv(input_a)
+                    input_b = transform_inv(input_b)
+                    output_a = transform_inv(output_a)
+                    output_b = transform_inv(output_b)
+                    # recon = transform_inv(recon)
+                    # recon = transform_inv(recon)
 
-                    writer_train.add_images('input', input, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
-                    writer_train.add_images('output', output, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
-                    writer_train.add_images('recon', recon, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
+                    writer_train.add_images('input_a', input_a, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
+                    writer_train.add_images('input_b', input_b, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
+                    writer_train.add_images('output_a', output_a, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
+                    writer_train.add_images('output_b', output_b, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
+                    # writer_train.add_images('recon', recon, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
 
-## tensorboard Loss 기록파트 잠시 접어둠
-            # writer_train.add_scalar('loss_G_src', mean(loss_G_src_train), epoch)
-            # writer_train.add_scalar('loss_G_cls', mean(loss_G_cls_train), epoch)
-            # writer_train.add_scalar('loss_G_rec', mean(loss_G_rec_train), epoch)
-            # writer_train.add_scalar('loss_D_src', mean(loss_D_src_train), epoch)
-            # writer_train.add_scalar('loss_D_cls', mean(loss_D_cls_train), epoch)
-            # writer_train.add_scalar('loss_D_gp', mean(loss_D_gp_train), epoch)
+            writer_train.add_scalar('loss_D_a', mean(loss_D_a_train), epoch)
+            writer_train.add_scalar('loss_D_b', mean(loss_D_b_train), epoch)
+            writer_train.add_scalar('loss_G_a2b', mean(loss_G_a2b_train), epoch)
+            writer_train.add_scalar('loss_G_b2a', mean(loss_G_b2a_train), epoch)
+            writer_train.add_scalar('loss_G_rec_a_train', mean(loss_G_rec_a_train), epoch)
+            writer_train.add_scalar('loss_G_rec_b_train', mean(loss_G_rec_b_train), epoch)
+            writer_train.add_scalar('loss_G_rec_x_a_train', mean(loss_G_rec_x_a_train), epoch)
+            writer_train.add_scalar('loss_G_rec_x_b_train', mean(loss_G_rec_x_b_train), epoch)
+            writer_train.add_scalar('loss_G_rec_s_a_train', mean(loss_G_rec_s_a_train), epoch)
+            writer_train.add_scalar('loss_G_rec_s_b_train', mean(loss_G_rec_s_b_train), epoch)
+            writer_train.add_scalar('loss_G_rec_c_a_train', mean(loss_G_rec_c_a_train), epoch)
+            writer_train.add_scalar('loss_G_rec_c_b_train', mean(loss_G_rec_c_b_train), epoch)
 
-            # # update schduler
-            # # schedG.step()
-            # # schedG.step()
-            # # schedD.step()
-            # # schedD.step()
+            # update schduler
+            schedG_a.step()
+            schedG_b.step()
+            schedD_a.step()
+            schedD_b.step()
 
 ## Save파트 재작성 필요
             ## save

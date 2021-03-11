@@ -61,6 +61,7 @@ parser.add_argument('--ny_load', type=int, default=256, dest='ny_load')
 parser.add_argument('--nx_load', type=int, default=256, dest='nx_load')
 parser.add_argument('--nch_load', type=int, default=3, dest='nch_load')
 
+# Rescale
 parser.add_argument('--ny_in', type=int, default=256, dest='ny_in')
 parser.add_argument('--nx_in', type=int, default=256, dest='nx_in')
 parser.add_argument('--nch_in', type=int, default=3, dest='nch_in')
