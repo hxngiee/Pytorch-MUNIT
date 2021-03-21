@@ -19,6 +19,10 @@ import matplotlib.pyplot as plt
 
 class Train:
     def __init__(self, args):
+        ##
+        self.pono = True
+
+
         self.mode = args.mode
         self.train_continue = args.train_continue
 
@@ -126,6 +130,22 @@ class Train:
         denomalize = Denomalize()
         return denomalize(tonumpy(data))
 
+    ## loss criterion for pono
+    import torch.nn.functional as F
+    def recon_criterion(self, input, target):
+        if torch.is_tensor(input):
+            return torch.mean(torch.abs(input - target))
+        elif torch.is_tensor(input[1]):
+            loss = F.l1_loss(input[0], target[0])
+            for m1, m2 in zip(input[1], target[1]):
+                loss += F.l1_loss(m1, m2)
+            return loss
+        else:
+            loss = F.l1_loss(input[0], target[0])
+            for (m1, s1), (m2, s2) in zip(input[1], target[1]):
+                loss += F.l1_loss(m1, m2) + F.l1_loss(s1, s2)
+            return loss
+
     def train(self):
         mode = self.mode
 
@@ -192,6 +212,8 @@ class Train:
 
         ## setup loss & optimization
         fn_REC = nn.L1Loss().to(device)   # L1
+
+
         # fn_SRC = nn.BCEWithLogitsLoss().to(device)
         # fn_GP = GradientPaneltyLoss().to(device)
 
@@ -270,6 +292,11 @@ class Train:
                 c_a, _ = netG_b2a.encode(input_a)
                 c_b, _ = netG_a2b.encode(input_b)
 
+                # if self.pono:
+                #     output_a = netG_b2a.decode(c_b, s_a, input_b)
+                #     output_b = netG_a2b.decode(c_a, s_b, input_a)
+                # else:
+
                 # decode (Cross domain)
                 output_a = netG_b2a.decode(c_b, s_a)
                 output_b = netG_a2b.decode(c_a, s_b)
@@ -336,17 +363,28 @@ class Train:
                 for out0 in pred_fake_b:
                     loss_G_b2a = torch.mean((out0 - 1)**2)
 
-                loss_G_rec_a = fn_REC(recon_a, input_a)
-                loss_G_rec_b = fn_REC(recon_b, input_b)
-                loss_G_rec_s_a = fn_REC(recon_s_a, s_a)
-                loss_G_rec_s_b = fn_REC(recon_s_a, s_b)
-                loss_G_rec_c_a = fn_REC(recon_c_a,c_a)
-                loss_G_rec_c_b = fn_REC(recon_c_b,c_b)
-                loss_G_rec_x_a = fn_REC(ident_a, input_a)
-                loss_G_rec_x_b = fn_REC(ident_b, input_b)
+                # loss_G_rec_a = fn_REC(recon_a, input_a)
+                # loss_G_rec_b = fn_REC(recon_b, input_b)
+                # loss_G_rec_s_a = fn_REC(recon_s_a, s_a)
+                # loss_G_rec_s_b = fn_REC(recon_s_a, s_b)
+                # loss_G_rec_c_a = fn_REC(recon_c_a, c_a)
+                # loss_G_rec_c_b = fn_REC(recon_c_b, c_b)
+                # loss_G_rec_x_a = fn_REC(ident_a, input_a)
+                # loss_G_rec_x_b = fn_REC(ident_b, input_b)
 
                 # loss_G_vgg_a = compute_vgg_loss(vgg추가해야함,output_a, input_b)
                 # loss_G_vgg_b = compute_vgg_loss(vgg추가해야함,output_b, input_a)
+
+
+                ## loss criterion for pono
+                loss_G_rec_a = self.recon_criterion(recon_a, input_a)
+                loss_G_rec_b = self.recon_criterion(recon_b, input_b)
+                loss_G_rec_s_a = self.recon_criterion(recon_s_a, s_a)
+                loss_G_rec_s_b = self.recon_criterion(recon_s_a, s_b)
+                loss_G_rec_c_a = self.recon_criterion(recon_c_a, c_a)
+                loss_G_rec_c_b = self.recon_criterion(recon_c_b, c_b)
+                loss_G_rec_x_a = self.recon_criterion(ident_a, input_a)
+                loss_G_rec_x_b = self.recon_criterion(ident_b, input_b)
 
 
                 loss_G = wgt_gan * loss_G_a2b + wgt_gan * loss_G_b2a + \
@@ -390,18 +428,51 @@ class Train:
                                                    mean(loss_G_rec_s_a_train),mean(loss_G_rec_s_b_train),mean(loss_G_rec_c_a_train), mean(loss_G_rec_c_b_train)))
 
                 if should(num_freq_disp):
+                    netG_a2b.eval()
+                    netG_b2a.eval()
+
                     ## show output
+                    # input_a = transform_inv(input_a)
+                    # input_b = transform_inv(input_b)
+                    # output_a = transform_inv(output_a)
+                    # output_b = transform_inv(output_b)
+
+                    s_a1 = Variable(s_a)
+                    s_b1 = Variable(s_b)
+                    s_a2 = Variable(torch.randn(input_a.size(0), 8, 1, 1).to(device))
+                    s_b2 = Variable(torch.randn(input_b.size(0), 8, 1, 1).to(device))
+                    x_a_rec, x_b_rec, x_ba1, x_ba2, x_ab1, x_ab2 = [], [], [], [], [], []
+                    for i in range(input_a.size(0)):
+                        c_a, s_a_fake = netG_a2b.encode(input_a[i].unsqueeze(0))
+                        c_b, s_b_fake = netG_b2a.encode(input_b[i].unsqueeze(0))
+                        x_a_rec.append(netG_a2b.decode(c_a, s_a_fake))
+                        x_b_rec.append(netG_b2a.decode(c_b, s_b_fake))
+                        x_ba1.append(netG_a2b.decode(c_b, s_a1[i].unsqueeze(0)))
+                        x_ba2.append(netG_a2b.decode(c_b, s_a2[i].unsqueeze(0)))
+                        x_ab1.append(netG_b2a.decode(c_a, s_b1[i].unsqueeze(0)))
+                        x_ab2.append(netG_b2a.decode(c_a, s_b2[i].unsqueeze(0)))
+                    x_a_rec, x_b_rec, = torch.cat(x_a_rec), torch.cat(x_b_rec)
+
+                    x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
+                    x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
+
+                    netG_a2b.train()
+                    netG_b2a.train()
+
                     input_a = transform_inv(input_a)
                     input_b = transform_inv(input_b)
-                    output_a = transform_inv(output_a)
-                    output_b = transform_inv(output_b)
-                    # recon = transform_inv(recon)
-                    # recon = transform_inv(recon)
+                    x_ba1 = transform_inv(x_ba1)
+                    x_ba2 = transform_inv(x_ba2)
+                    x_ab1 = transform_inv(x_ab1)
+                    x_ab2 = transform_inv(x_ab2)
+
 
                     writer_train.add_images('input_a', input_a, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
                     writer_train.add_images('input_b', input_b, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
-                    writer_train.add_images('output_a', output_a, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
-                    writer_train.add_images('output_b', output_b, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
+                    writer_train.add_images('output_x_ba1', x_ba1, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
+                    writer_train.add_images('output_x_ba2', x_ba2, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
+                    writer_train.add_images('output_x_ab1', x_ab1, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
+                    writer_train.add_images('output_x_ab2', x_ab2, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
                     # writer_train.add_images('recon', recon, num_batch_train * (epoch - 1) + i, dataformats='NHWC')
 
             writer_train.add_scalar('loss_D_a', mean(loss_D_a_train), epoch)
